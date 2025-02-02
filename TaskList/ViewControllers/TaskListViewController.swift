@@ -10,6 +10,7 @@ import UIKit
 final class TaskListViewController: UITableViewController {
     private var taskList: [ToDoTask] = []
     private let cellID = "task"
+    private let storageManager = StorageManager.shared
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -20,45 +21,59 @@ final class TaskListViewController: UITableViewController {
     }
     
     @objc private func addNewTask() {
-        showAlert(withTitle: "New Task", andMessage: "What do you want to do?")
+        showAlert(withTitle: "New Task", andMessage: "What do you want to do?") { [weak self] taskName in
+            guard let self = self else { return }
+            let task = ToDoTask(context: storageManager.persistentContainer.viewContext)
+            task.title = taskName
+            taskList.append(task)
+            
+            let indexPath = IndexPath(row: taskList.count - 1, section: 0)
+            tableView.insertRows(at: [indexPath], with: .automatic)
+            
+            storageManager.saveContext()
+        }
     }
     
     private func fetchData() {
-        let appDelegate = UIApplication.shared.delegate as! AppDelegate
         let fetchRequest = ToDoTask.fetchRequest()
         
         do {
-            taskList = try appDelegate.persistentContainer.viewContext.fetch(fetchRequest)
+            taskList = try storageManager.persistentContainer.viewContext.fetch(fetchRequest)
         } catch {
             print(error)
         }
     }
     
-    private func showAlert(withTitle title: String, andMessage message: String) {
+    private func showAlert(withTitle title: String, andMessage message: String, text: String? = nil, action: @escaping (String) -> Void) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        let okAction = UIAlertAction(title: "OK", style: .default) { [unowned self] _ in
+        
+        let okAction = UIAlertAction(title: "OK", style: .default) { _ in
             guard let inputText = alert.textFields?.first?.text, !inputText.isEmpty else { return }
-            save(inputText)
+            action(inputText)
         }
         let cancelAction = UIAlertAction(title: "Cancel", style: .destructive)
         alert.addAction(okAction)
         alert.addAction(cancelAction)
         alert.addTextField { textField in
             textField.placeholder = "New Task"
+            textField.text = text
         }
         present(alert, animated: true)
     }
     
     private func save(_ taskName: String) {
-        let appDelegate = UIApplication.shared.delegate as! AppDelegate
-        let task = ToDoTask(context: appDelegate.persistentContainer.viewContext)
+        let task = ToDoTask(context: storageManager.persistentContainer.viewContext)
         task.title = taskName
         taskList.append(task)
         
         let indexPath = IndexPath(row: taskList.count - 1, section: 0)
         tableView.insertRows(at: [indexPath], with: .automatic)
         
-        appDelegate.saveContext()
+        storageManager.saveContext()
+    }
+    
+    private func update(_ newTaskName: String) {
+        
     }
 }
 
@@ -75,6 +90,32 @@ extension TaskListViewController {
         content.text = task.title
         cell.contentConfiguration = content
         return cell
+    }
+}
+
+// MARK: - UITableViewDelegate
+extension TaskListViewController {
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let selectedTask = taskList[indexPath.row]
+        
+        showAlert(withTitle: "Edit Task", andMessage: "What do you want to do?", text: selectedTask.title) { [weak self] taskTitle in
+            guard let self = self else { return }
+            selectedTask.title = taskTitle
+            storageManager.saveContext()
+            tableView.deselectRow(at: indexPath, animated: true)
+            tableView.reloadRows(at: [indexPath], with: .automatic)
+        }
+        
+    }
+    
+    override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
+        let taskToDelete = taskList[indexPath.row]
+        storageManager.persistentContainer.viewContext.delete(taskToDelete)
+        
+        taskList.remove(at: indexPath.row)
+        tableView.deleteRows(at: [indexPath], with: .automatic)
+        
+        storageManager.saveContext()
     }
 }
 
